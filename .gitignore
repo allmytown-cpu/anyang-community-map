@@ -16,6 +16,13 @@ node_modules/
 # Photos (large binary files)
 새사진/*.jpg
 새사진/*.jpeg
+1회차/*.jpg
+1회차/*.jpeg
+2회차/*.jpg
+2회차/*.jpeg
+3회차/*.jpg
+3회차/*.jpeg
+photos/
 
 # Logs
 *.log
