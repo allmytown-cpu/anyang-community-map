@@ -24,6 +24,7 @@
   .popup-content img { width:100%; max-height:400px; object-fit:cover; border-radius:6px; margin-bottom:6px; display:block; cursor:pointer; }
   .popup-content b { color:#4472C4; }
   .popup-no-photo { background:#f0f0f0; color:#888; text-align:center; padding:40px 0; border-radius:6px; margin-bottom:6px; font-size:12px; }
+  .padlet-comment { background:#fffde7; border-left:3px solid #fbc02d; padding:6px 8px; margin-top:8px; border-radius:4px; font-size:12px; line-height:1.5; }
 
   .lightbox { display:none; position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,0.85);
     align-items:center; justify-content:center; }
@@ -82,6 +83,7 @@ async function loadExcel() {
       const date = r['촬영일자'] || '';
       const addr = r['주소(오버레이 텍스트)'] || '';
       const file = r['파일명'] || '';
+      const padletComment = r['패들렛댓글'] || '';
 
       if (lat == null || lng == null) return;
 
@@ -91,6 +93,10 @@ async function loadExcel() {
         ? `<img src="photos/${file}" onclick="openLightbox(this.src)" onerror="this.outerHTML='<div class=\\'popup-no-photo\\'>사진 없음</div>'" />`
         : `<div class="popup-no-photo">사진 없음</div>`;
 
+      const commentTag = padletComment
+        ? `<div class="padlet-comment"><b>패들렛 댓글</b><br/>${padletComment}</div>`
+        : '';
+
       L.marker([lat, lng], { icon: numberedIcon(no) })
         .addTo(map)
         .bindPopup(`
@@ -99,6 +105,7 @@ async function loadExcel() {
             <b>연번 ${no}</b><br/>
             ${date} ${time}<br/>
             ${addr}
+            ${commentTag}
           </div>
         `);
     });
