@@ -23,5 +23,8 @@ node_modules/
 3회차/*.jpg
 3회차/*.jpeg
 
+# Excel lock files
+~$*.xlsx
+
 # Logs
 *.log
