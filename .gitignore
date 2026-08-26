@@ -13,5 +13,9 @@ Desktop.ini
 # Dependencies
 node_modules/
 
+# Photos (large binary files)
+새사진/*.jpg
+새사진/*.jpeg
+
 # Logs
 *.log
