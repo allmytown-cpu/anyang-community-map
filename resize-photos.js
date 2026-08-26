@@ -39,9 +39,10 @@ async function main() {
         const h = metadata.height || 0;
 
         if (w <= MAX_WIDTH && h <= MAX_WIDTH) {
-          fs.copyFileSync(src, dst);
+          await sharp(src).rotate().jpeg({ quality: JPEG_QUALITY }).toFile(dst);
         } else {
           await sharp(src)
+            .rotate()
             .resize({ width: MAX_WIDTH, withoutEnlargement: true })
             .jpeg({ quality: JPEG_QUALITY })
             .toFile(dst);
