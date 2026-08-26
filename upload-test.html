@@ -1,0 +1,256 @@
+<!--
+  실험용 버전 (upload-test)
+  - 사진 업로드, EXIF GPS 추출, 수동 마커 배치 기능 포함
+  - 향후 Firebase 등 백엔드 연결 시 사용할 예정
+-->
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>커뮤니티매핑 - 사진 업로드형 (실험)</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exif-js/2.3.0/exif.js"></script>
+<style>
+  html, body { margin:0; padding:0; height:100%; font-family: -apple-system, "Malgun Gothic", sans-serif; }
+  #map { height: 100%; width: 100%; }
+
+  .panel {
+    position: absolute; top: 10px; left: 50px; z-index: 1000;
+    background: white; padding: 12px 16px; border-radius: 10px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.25); font-size: 13px; width: 260px;
+  }
+  .panel h3 { margin: 0 0 4px 0; font-size: 15px; }
+  .badge { display:inline-block; background:#e8f0fe; color:#4472C4; font-size:11px;
+    padding:2px 8px; border-radius:10px; margin-bottom:8px; }
+  .upload-btn {
+    display:block; width:100%; margin-top:8px; padding:9px 0; text-align:center;
+    background:#4472C4; color:white; border:none; border-radius:6px; font-size:13px;
+    cursor:pointer;
+  }
+  .upload-btn:hover { background:#365a9e; }
+  .hint { font-size:11px; color:#777; margin-top:6px; line-height:1.5; }
+  .status {
+    margin-top:8px; font-size:12px; padding:6px 8px; border-radius:6px; display:none;
+  }
+  .status.show { display:block; }
+  .status.loading { background:#fff8e1; color:#9a7300; }
+  .status.ok { background:#e6f4ea; color:#1e7e34; }
+  .status.err { background:#fdecea; color:#c0392b; }
+  .status.pending { background:#eef2ff; color:#3949ab; }
+
+  .popup-content { font-size: 13px; line-height: 1.5; max-width:220px; }
+  .popup-content img { width:100%; border-radius:6px; margin-bottom:6px; display:block; }
+  .popup-content b { color:#4472C4; }
+  .del-btn { margin-top:6px; font-size:11px; color:#c0392b; background:none; border:1px solid #c0392b;
+    border-radius:4px; padding:2px 8px; cursor:pointer; }
+
+  .num-badge { }
+</style>
+</head>
+<body>
+
+<div class="panel">
+  <div class="badge">🌐 공유 지도 · 모두에게 보임</div>
+  <h3>📍 커뮤니티매핑 프로토타입</h3>
+  <div id="pendingBox" class="hint">사진을 선택하면, GPS 정보가 있으면 자동으로 위치를 찾고, 없으면 지도를 클릭해 위치를 지정해주세요.</div>
+
+  <input type="file" id="fileInput" accept="image/*" style="display:none">
+  <button class="upload-btn" onclick="document.getElementById('fileInput').click()">📷 사진 추가하기</button>
+
+  <div id="status" class="status"></div>
+  <div class="hint">이 링크에 들어온 모든 사람이 같은 지도/사진을 보고 추가할 수 있습니다. 개인정보가 담긴 사진은 올리지 마세요.</div>
+</div>
+
+<div id="map"></div>
+
+<script>
+const map = L.map('map').setView([37.3948, 126.9134], 16);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors',
+  maxZoom: 19
+}).addTo(map);
+
+// ---------- 예시 데이터 (앞서 분석한 5장 - 참고용 고정 레이어) ----------
+const demoPoints = [
+  {no:1, lat:37.3955, lng:126.9138, time:"18:53", addr:"경기도 안양시 만안구 안양동 1219-515"},
+  {no:2, lat:37.3952, lng:126.9130, time:"18:52", addr:"경기도 안양시 만안구 안양동 1219-405"},
+  {no:3, lat:37.3948, lng:126.9130, time:"18:50", addr:"(주소 오버레이 없음)"},
+  {no:4, lat:37.3948, lng:126.9130, time:"18:50", addr:"경기도 안양시 만안구 안양동 765-4"},
+  {no:5, lat:37.3938, lng:126.9135, time:"18:46", addr:"경기도 안양시 만안구 장내로 42"},
+];
+demoPoints.forEach(p=>{
+  L.circleMarker([p.lat,p.lng], {radius:6, color:'#999', fillColor:'#ccc', fillOpacity:0.9})
+    .addTo(map)
+    .bindPopup(`<div class="popup-content"><b>예시 ${p.no}</b><br>${p.time}<br>${p.addr}</div>`);
+});
+
+// ---------- 상태 표시 유틸 ----------
+function setStatus(msg, type) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = 'status show ' + type;
+}
+function clearStatus() {
+  const el = document.getElementById('status');
+  el.className = 'status';
+}
+
+// ---------- 이미지 리사이즈/압축 (canvas) ----------
+function resizeImage(file, maxDim, quality) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = e => { img.src = e.target.result; };
+    reader.onerror = reject;
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > height && width > maxDim) { height *= maxDim/width; width = maxDim; }
+      else if (height > maxDim) { width *= maxDim/height; height = maxDim; }
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+// ---------- EXIF GPS 추출 ----------
+function toDecimal(gpsArr, ref) {
+  const d = gpsArr[0], m = gpsArr[1], s = gpsArr[2];
+  let dec = d + m/60 + s/3600;
+  if (ref === 'S' || ref === 'W') dec = -dec;
+  return dec;
+}
+function getExifGPS(file) {
+  return new Promise((resolve) => {
+    try {
+      EXIF.getData(file, function() {
+        const lat = EXIF.getTag(this, "GPSLatitude");
+        const latRef = EXIF.getTag(this, "GPSLatitudeRef");
+        const lng = EXIF.getTag(this, "GPSLongitude");
+        const lngRef = EXIF.getTag(this, "GPSLongitudeRef");
+        if (lat && lng) {
+          resolve({ lat: toDecimal(lat, latRef), lng: toDecimal(lng, lngRef) });
+        } else {
+          resolve(null);
+        }
+      });
+    } catch (e) {
+      resolve(null);
+    }
+  });
+}
+
+// ---------- 마커 렌더 ----------
+function addPhotoMarker(rec) {
+  const marker = L.marker([rec.lat, rec.lng]).addTo(map);
+  marker.bindPopup(`
+    <div class="popup-content">
+      <img src="${rec.thumb}" />
+      <b>${rec.source === 'exif' ? '📍 GPS 자동인식' : '📌 수동 지정'}</b><br>
+      ${rec.addedAt || ''}<br>
+      <button class="del-btn" onclick="deletePhoto('${rec.id}')">삭제</button>
+    </div>
+  `);
+  markersById[rec.id] = marker;
+}
+
+const markersById = {};
+
+async function deletePhoto(id) {
+  try {
+    await window.storage.delete(`photo:${id}`, true);
+    const idxRes = await window.storage.get('photo_index', true);
+    let ids = idxRes ? JSON.parse(idxRes.value) : [];
+    ids = ids.filter(x => x !== id);
+    await window.storage.set('photo_index', JSON.stringify(ids), true);
+    if (markersById[id]) { map.removeLayer(markersById[id]); delete markersById[id]; }
+  } catch (e) {
+    alert('삭제 중 오류가 발생했습니다.');
+  }
+}
+window.deletePhoto = deletePhoto;
+
+// ---------- 저장된 사진들 불러오기 ----------
+async function loadAllPhotos() {
+  try {
+    const idxRes = await window.storage.get('photo_index', true);
+    if (!idxRes) return;
+    const ids = JSON.parse(idxRes.value);
+    for (const id of ids) {
+      try {
+        const res = await window.storage.get(`photo:${id}`, true);
+        if (res) addPhotoMarker(JSON.parse(res.value));
+      } catch (e) { /* 개별 항목 실패는 건너뜀 */ }
+    }
+  } catch (e) {
+    console.error('불러오기 실패', e);
+  }
+}
+
+// ---------- 업로드 플로우 ----------
+let pendingFile = null;
+let pendingResizedDataUrl = null;
+let manualPickMode = false;
+
+document.getElementById('fileInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  pendingFile = file;
+  setStatus('사진 처리 중...', 'loading');
+
+  const resized = await resizeImage(file, 1000, 0.7);
+  pendingResizedDataUrl = resized;
+
+  const gps = await getExifGPS(file);
+  if (gps) {
+    setStatus('GPS 정보를 찾았습니다. 저장 중...', 'loading');
+    await savePhoto(gps.lat, gps.lng, 'exif');
+  } else {
+    manualPickMode = true;
+    setStatus('사진에 위치정보가 없습니다. 지도를 클릭해 위치를 지정해주세요.', 'pending');
+  }
+  document.getElementById('fileInput').value = '';
+});
+
+map.on('click', async (e) => {
+  if (!manualPickMode || !pendingResizedDataUrl) return;
+  manualPickMode = false;
+  setStatus('저장 중...', 'loading');
+  await savePhoto(e.latlng.lat, e.latlng.lng, 'manual');
+});
+
+async function savePhoto(lat, lng, source) {
+  const id = 'p' + Date.now() + Math.floor(Math.random()*1000);
+  const rec = {
+    id, lat, lng, source,
+    thumb: pendingResizedDataUrl,
+    addedAt: new Date().toLocaleString('ko-KR')
+  };
+  try {
+    const setRes = await window.storage.set(`photo:${id}`, JSON.stringify(rec), true);
+    if (!setRes) throw new Error('저장 실패');
+
+    const idxRes = await window.storage.get('photo_index', true).catch(() => null);
+    let ids = idxRes ? JSON.parse(idxRes.value) : [];
+    ids.push(id);
+    await window.storage.set('photo_index', JSON.stringify(ids), true);
+
+    addPhotoMarker(rec);
+    setStatus('저장 완료 ✔', 'ok');
+    setTimeout(clearStatus, 2500);
+  } catch (err) {
+    setStatus('저장 중 오류가 발생했습니다. (사진 용량이 너무 클 수 있어요)', 'err');
+  } finally {
+    pendingResizedDataUrl = null;
+    pendingFile = null;
+  }
+}
+
+loadAllPhotos();
+</script>
+</body>
+</html>

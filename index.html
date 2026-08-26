@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>커뮤니티매핑 프로토타입 - 안양천변</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<style>
+  html, body { margin:0; padding:0; height:100%; font-family: -apple-system, "Malgun Gothic", sans-serif; }
+  #map { height: 100%; width: 100%; }
+  .info-box {
+    position: absolute; top: 10px; left: 50px; z-index: 1000;
+    background: white; padding: 10px 16px; border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25); font-size: 13px; max-width: 260px;
+  }
+  .info-box h3 { margin: 0 0 6px 0; font-size: 15px; }
+  .num-badge {
+    background:#4472C4; color:white; border-radius:50%;
+    width:22px; height:22px; display:inline-flex; align-items:center;
+    justify-content:center; font-weight:bold; font-size:12px; margin-right:6px;
+  }
+  .popup-content { font-size: 13px; line-height: 1.5; }
+  .popup-content b { color:#4472C4; }
+</style>
+</head>
+<body>
+<div class="info-box">
+  <h3>📍 안양천변 도보 경로 (2026-07-22)</h3>
+  사진 오버레이 GPS 좌표를 파싱해 표시한 프로토타입입니다. 엑셀(연번·좌표·촬영일시)에서 바로 읽어와 지도에 얹는 구조를 그대로 재현했습니다.
+</div>
+<div id="map"></div>
+
+<script>
+// ↓ 이 부분이 "엑셀에서 읽어온 데이터"에 해당합니다.
+// 실제 서비스에서는 SheetJS(xlsx) 등으로 엑셀 파일을 읽어 이 배열을 자동 생성하면 됩니다.
+const points = [
+  {no:1, file:"KakaoTalk_..._008.jpg",    lat:37.3955, lng:126.9138, time:"18:53", addr:"경기도 안양시 만안구 안양동 1219-515"},
+  {no:2, file:"KakaoTalk_..._008_01.jpg", lat:37.3952, lng:126.9130, time:"18:52", addr:"경기도 안양시 만안구 안양동 1219-405"},
+  {no:3, file:"KakaoTalk_..._008_02.jpg", lat:37.3948, lng:126.9130, time:"18:50", addr:"(주소 오버레이 없음)"},
+  {no:4, file:"KakaoTalk_..._008_03.jpg", lat:37.3948, lng:126.9130, time:"18:50", addr:"경기도 안양시 만안구 안양동 765-4"},
+  {no:5, file:"KakaoTalk_..._008_04.jpg", lat:37.3938, lng:126.9135, time:"18:46", addr:"경기도 안양시 만안구 장내로 42"},
+];
+
+const map = L.map('map').setView([37.3948, 126.9134], 16);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors',
+  maxZoom: 19
+}).addTo(map);
+
+// 번호가 매겨진 원형 마커 아이콘 생성
+function numberedIcon(n) {
+  return L.divIcon({
+    html: `<div style="background:#4472C4;color:white;border-radius:50%;width:28px;height:28px;
+                display:flex;align-items:center;justify-content:center;font-weight:bold;
+                font-size:13px;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,0.4);">${n}</div>`,
+    className: '',
+    iconSize: [28,28],
+    iconAnchor: [14,14]
+  });
+}
+
+const latlngs = [];
+points.forEach(p => {
+  latlngs.push([p.lat, p.lng]);
+  L.marker([p.lat, p.lng], {icon: numberedIcon(p.no)})
+    .addTo(map)
+    .bindPopup(`
+      <div class="popup-content">
+        <b>연번 ${p.no}</b><br/>
+        시각: ${p.time}<br/>
+        좌표: ${p.lat}, ${p.lng}<br/>
+        주소: ${p.addr}
+      </div>
+    `);
+});
+
+// 시간순 이동 경로 선 연결
+L.polyline(latlngs, {color:'#e05252', weight:3, dashArray:'6 6', opacity:0.8}).addTo(map);
+
+// 전체 마커가 보이도록 범위 조정
+map.fitBounds(latlngs, {padding:[60,60]});
+</script>
+</body>
+</html>
