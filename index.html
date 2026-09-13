@@ -4,8 +4,15 @@
 <meta charset="UTF-8">
 <title>커뮤니티매핑 프로토타입 - 안양천변</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<!-- 네이버 지도 API: YOUR_NAVER_CLIENT_ID 자리에 NCP(네이버 클라우드 플랫폼)에서 발급한 클라이언트 ID를 넣으세요. -->
-<script type="text/javascript" src="https://openapi.map.naver.com/openapi/v3/maps.js?ncpClientId=ldzn2y3ng1"></script>
+<script>
+  // 인증 실패 시 원인을 화면에 표시 (maps.js 로드 전에 정의되어야 함)
+  window.navermap_authFailure = function() {
+    var el = document.getElementById('infoText');
+    if (el) el.textContent = '네이버 지도 인증에 실패했습니다. NCP 콘솔의 Key ID와 등록 도메인을 확인하세요.';
+  };
+</script>
+<!-- 네이버 지도 API (신규 Maps 서비스): ncpKeyId 자리에 NCP 콘솔 Services > Application Services > Maps 에서 발급한 Key ID를 넣으세요. -->
+<script type="text/javascript" src="https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=ldzn2y3ng1"></script>
 <!-- 네이버 지도 공식 마커 클러스터링 유틸리티 (navermaps/marker-tools.js) -->
 <script type="text/javascript" src="https://cdn.jsdelivr.net/gh/navermaps/marker-tools.js@master/marker-clustering/src/MarkerClustering.js"></script>
 <style>
@@ -50,7 +57,7 @@
 
 <script>
 // ▼▼ 네이버 지도 설정 ▼▼
-var NAVER_CLIENT_ID = 'ldzn2y3ng1'; // ← 여기에 본인의 NCP 클라이언트 ID를 넣으세요 (위 <script src>의 ncpClientId와 동일해야 합니다)
+var NAVER_KEY_ID = 'ldzn2y3ng1'; // ← NCP 콘솔에서 발급한 Key ID (위 <script src>의 ncpKeyId와 동일해야 합니다)
 var INIT_CENTER = new naver.maps.LatLng(37.3948, 126.9134); // 안양천
 var INIT_ZOOM = 16;
 var CLUSTER_MAX_ZOOM = 16;      // 이 줌 레벨 이상으로 확대하면 개별 마커로 표시, 축소하면 클러스터 표시
