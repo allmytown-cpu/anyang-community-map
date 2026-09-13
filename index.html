@@ -3,9 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <title>커뮤니티매핑 프로토타입 - 안양천변</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- 네이버 지도 API: YOUR_NAVER_CLIENT_ID 자리에 NCP(네이버 클라우드 플랫폼)에서 발급한 클라이언트 ID를 넣으세요. -->
+<script type="text/javascript" src="https://openapi.map.naver.com/openapi/v3/maps.js?ncpClientId=ldzn2y3ng1"></script>
+<!-- 네이버 지도 공식 마커 클러스터링 유틸리티 (navermaps/marker-tools.js) -->
+<script type="text/javascript" src="https://cdn.jsdelivr.net/gh/navermaps/marker-tools.js@master/marker-clustering/src/MarkerClustering.js"></script>
 <style>
   html, body { margin:0; padding:0; height:100%; font-family: -apple-system, "Malgun Gothic", sans-serif; }
   #map { height: 100%; width: 100%; }
@@ -37,7 +39,7 @@
 </head>
 <body>
 <div class="info-box">
-  <h3>📍 안양천변 도보 경로</h3>
+  <h3>📍 안양3동 안전지도</h3>
   <span id="infoText">엑셀 파일을 불러오는 중...</span>
 </div>
 <div id="map"></div>
@@ -47,23 +49,58 @@
 </div>
 
 <script>
-const map = L.map('map').setView([37.3948, 126.9134], 16);
+// ▼▼ 네이버 지도 설정 ▼▼
+var NAVER_CLIENT_ID = 'ldzn2y3ng1'; // ← 여기에 본인의 NCP 클라이언트 ID를 넣으세요 (위 <script src>의 ncpClientId와 동일해야 합니다)
+var INIT_CENTER = new naver.maps.LatLng(37.3948, 126.9134); // 안양천
+var INIT_ZOOM = 16;
+var CLUSTER_MAX_ZOOM = 16;      // 이 줌 레벨 이상으로 확대하면 개별 마커로 표시, 축소하면 클러스터 표시
+var CLUSTER_GRID_SIZE = 100;    // 클러스터링 그리드 크기(px). 클수록 더 잘 뭉칩니다.
+var CLUSTER_MIN_SIZE = 2;       // 클러스터로 묶을 최소 마커 수
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '&copy; OpenStreetMap contributors',
-  maxZoom: 19
-}).addTo(map);
+var map = new naver.maps.Map('map', {
+  center: INIT_CENTER,
+  zoom: INIT_ZOOM,
+  scaleControl: true,
+  logoControl: true,
+  mapDataControl: false,
+  zoomControl: true,
+  zoomControlOptions: { position: naver.maps.Position.RIGHT_BOTTOM }
+});
 
-function numberedIcon(n) {
-  return L.divIcon({
-    html: `<div style="background:#4472C4;color:white;border-radius:50%;width:28px;height:28px;
-                display:flex;align-items:center;justify-content:center;font-weight:bold;
-                font-size:13px;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,0.4);">${n}</div>`,
-    className: '',
-    iconSize: [28,28],
-    iconAnchor: [14,14]
-  });
+// 개별 지점 마커 (기존 파란색 번호 마커 유지)
+function makeMarkerIcon(n) {
+  return {
+    content: '<div style="background:#4472C4;color:white;border-radius:50%;width:28px;height:28px;' +
+             'display:flex;align-items:center;justify-content:center;font-weight:bold;' +
+             'font-size:13px;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,0.4);">' + n + '</div>',
+    size: new naver.maps.Size(28, 28),
+    anchor: new naver.maps.Point(14, 14)
+  };
 }
+
+// 클러스터(그룹) 마커 - 주황색 숫자 원
+function makeClusterIcon(count) {
+  return {
+    content: '<div style="background:#FF8F00;color:white;border-radius:50%;width:36px;height:36px;' +
+             'display:flex;align-items:center;justify-content:center;font-weight:bold;' +
+             'font-size:15px;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,0.4);">' + count + '</div>',
+    size: new naver.maps.Size(36, 36),
+    anchor: new naver.maps.Point(18, 18)
+  };
+}
+
+var infoWindow = new naver.maps.InfoWindow({
+  content: '',
+  maxWidth: 240,
+  disableAutoPan: true,
+  borderWidth: 1,
+  borderColor: '#4472C4',
+  backgroundColor: '#ffffff',
+  anchorSize: new naver.maps.Size(10, 10),
+  anchorColor: '#ffffff',
+  pixelOffset: new naver.maps.Point(0, -4),
+  zIndex: 2000
+});
 
 async function loadExcel() {
   try {
@@ -74,8 +111,11 @@ async function loadExcel() {
     const ws = wb.Sheets[wb.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(ws);
 
-    const latlngs = [];
-    rows.forEach((r, i) => {
+    // 기존 위치 데이터(배열)는 그대로 유지하고, 마커는 새로 생성합니다.
+    const positions = [];
+    const markers = [];
+
+    rows.forEach((r) => {
       const lat = r['위도(Lat)'];
       const lng = r['경도(Lng)'];
       const no = r['연번'];
@@ -87,7 +127,13 @@ async function loadExcel() {
 
       if (lat == null || lng == null) return;
 
-      latlngs.push([lat, lng]);
+      const position = new naver.maps.LatLng(lat, lng);
+      positions.push(position);
+
+      const marker = new naver.maps.Marker({
+        position: position,
+        icon: makeMarkerIcon(no)
+      });
 
       const photoTag = file
         ? `<img src="photos/${file}" onclick="openLightbox(this.src)" onerror="this.outerHTML='<div class=\\'popup-no-photo\\'>사진 없음</div>'" />`
@@ -97,22 +143,45 @@ async function loadExcel() {
         ? `<div class="padlet-comment"><b>패들렛 댓글</b><br/>${padletComment}</div>`
         : '';
 
-      L.marker([lat, lng], { icon: numberedIcon(no) })
-        .addTo(map)
-        .bindPopup(`
-          <div class="popup-content">
-            ${photoTag}
-            <b>연번 ${no}</b><br/>
-            ${date} ${time}<br/>
-            ${addr}
-            ${commentTag}
-          </div>
-        `);
+      const popupHtml = `
+        <div class="popup-content">
+          ${photoTag}
+          <b>연번 ${no}</b><br/>
+          ${date} ${time}<br/>
+          ${addr}
+          ${commentTag}
+        </div>
+      `;
+
+      naver.maps.Event.addListener(marker, 'click', function() {
+        infoWindow.setContent(popupHtml);
+        infoWindow.open(map, marker);
+      });
+
+      markers.push(marker);
     });
 
-    if (latlngs.length > 0) {
-      map.fitBounds(latlngs, { padding: [60, 60] });
+    if (positions.length > 0) {
+      const bounds = positions.reduce(
+        (b, p) => b.extend(p),
+        new naver.maps.LatLngBounds(positions[0].clone(), positions[0].clone())
+      );
+      map.fitBounds(bounds, 60);
     }
+
+    // 마커 클러스터링: 축소 시 인접 마커를 숫자 그룹으로, 확대 시 개별 마커로 표시
+    new MarkerClustering({
+      minClusterSize: CLUSTER_MIN_SIZE,
+      maxZoom: CLUSTER_MAX_ZOOM,
+      map: map,
+      markers: markers,
+      disableClickZoom: false,
+      gridSize: CLUSTER_GRID_SIZE,
+      icons: [makeClusterIcon(0)],
+      stylingFunction: function(clusterMarker, count) {
+        clusterMarker.setIcon(makeClusterIcon(count));
+      }
+    });
 
     const first = rows[0];
     const dateStr = first ? first['촬영일자'] || '' : '';

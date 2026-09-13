@@ -8,19 +8,22 @@ Static HTML prototypes for community mapping around Anyang, Korea (안양시). N
 
 | File | Purpose |
 |---|---|
-| `index.html` | **Main map** (GitHub Pages). Reads GPS waypoints from Excel via SheetJS at runtime. Route polyline, numbered markers. |
+| `index.html` | **Main map** (GitHub Pages). Reads GPS waypoints from Excel via SheetJS at runtime. Numbered markers + marker clustering on NAVER Maps. |
 | `upload-test.html` | Experimental version: photo upload, EXIF GPS extraction, manual click-to-place, persistence via `window.storage`. Firebase backend TBD. |
 | `community_mapping_photo_list.xlsx` | Source Excel data (serial numbers, GPS coords, timestamps). |
 | `README.md` | Project description (Korean). |
 
 ## Dependencies (CDN, no install needed)
 
-- **Leaflet 1.9.4** — mapping library (both files)
+- **NAVER Maps JavaScript API v3** — mapping library (`index.html`)
+- **marker-tools.js (MarkerClustering)** — NAVER official marker clustering utility, served via jsDelivr GitHub mirror
 - **SheetJS 0.18.5** — Excel parsing in browser (`index.html` only)
 
 ## Key technical details
 
 - **Map center**: `37.3948, 126.9134` (Anyang-si, Gyeonggi-do), zoom 16
+- **NAVER Client ID**: required. Replace `YOUR_NAVER_CLIENT_ID` in both the `<script src="...maps.js?ncpClientId=...">` tag and the `NAVER_CLIENT_ID` const in `index.html`. The domain serving the page (e.g. GitHub Pages) must be registered as an allowed host in the NCP console.
+- **Clustering**: `MarkerClustering` with `CLUSTER_MAX_ZOOM = 16` (individual markers shown at zoom ≥ 16, clusters when zoomed out), `CLUSTER_GRID_SIZE = 100`, `CLUSTER_MIN_SIZE = 2`.
 - **Language**: Korean (`lang="ko"`, UI strings in Korean)
 - **Image handling**: Resized to max 1000px, JPEG quality 0.7 before storage
 - **Storage**: `upload-test.html` uses `window.storage` (Netlify Blobs or similar) with keys `photo_index` (JSON array of IDs) and `photo:{id}` (JSON records). If this API is unavailable, the upload flow will fail silently.
