@@ -2,6 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>커뮤니티매핑 프로토타입 - 안양천변</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
@@ -15,25 +16,28 @@
 <script type="text/javascript" src="https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=ldzn2y3ng1"></script>
 <!-- 네이버 지도 공식 마커 클러스터링 유틸리티 (navermaps/marker-tools.js) -->
 <script type="text/javascript" src="https://cdn.jsdelivr.net/gh/navermaps/marker-tools.js@master/marker-clustering/src/MarkerClustering.js"></script>
+<!-- Firebase (참여자가 올린 핀/사진/메모 공유 저장소) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <style>
   html, body { margin:0; padding:0; height:100%; font-family: -apple-system, "Malgun Gothic", sans-serif; }
   #map { height: 100%; width: 100%; }
   .info-box {
-    position: absolute; top: 10px; left: 50px; z-index: 1000;
-    background: white; padding: 10px 16px; border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.25); font-size: 13px; max-width: 260px;
+    position: absolute; top: 10px; left: 10px; z-index: 1000;
+    background: white; padding: 10px 14px; border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25); font-size: 13px; max-width: 60vw;
   }
   .info-box h3 { margin: 0 0 6px 0; font-size: 15px; }
-  .num-badge {
-    background:#4472C4; color:white; border-radius:50%;
-    width:22px; height:22px; display:inline-flex; align-items:center;
-    justify-content:center; font-weight:bold; font-size:12px; margin-right:6px;
-  }
+  .mode-badge { display:inline-block; margin-top:6px; padding:2px 8px; border-radius:10px;
+    font-size:11px; font-weight:bold; background:#ffe0b2; color:#e65100; }
+  .mode-badge.shared { background:#c8e6c9; color:#1b5e20; }
+
   .popup-content { font-size: 13px; line-height: 1.5; max-width:220px; }
   .popup-content img { width:100%; max-height:400px; object-fit:cover; border-radius:6px; margin-bottom:6px; display:block; cursor:pointer; }
   .popup-content b { color:#4472C4; }
+  .popup-content.community b { color:#2E9E5B; }
   .popup-no-photo { background:#f0f0f0; color:#888; text-align:center; padding:40px 0; border-radius:6px; margin-bottom:6px; font-size:12px; }
-  .padlet-comment { background:#fffde7; border-left:3px solid #fbc02d; padding:6px 8px; margin-top:8px; border-radius:4px; font-size:12px; line-height:1.5; }
+  .padlet-comment { background:#fffde7; border-left:3px solid #fbc02d; padding:6px 8px; margin-top:8px; border-radius:4px; font-size:12px; line-height:1.5; white-space:pre-wrap; word-break:break-word; }
 
   .lightbox { display:none; position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,0.85);
     align-items:center; justify-content:center; }
@@ -42,28 +46,143 @@
   .lightbox-close { position:absolute; top:16px; right:20px; color:white; font-size:32px;
     cursor:pointer; line-height:1; user-select:none; }
   .lightbox-close:hover { color:#ccc; }
+
+  /* ===== 핀 추가 UI ===== */
+  .fab {
+    position: fixed; right: 16px; bottom: 16px; bottom: calc(16px + env(safe-area-inset-bottom));
+    z-index: 1100; background:#2E9E5B; color:#fff; border:none; border-radius:28px;
+    padding:14px 20px; font-size:15px; font-weight:bold; font-family:inherit;
+    box-shadow:0 4px 14px rgba(0,0,0,0.35); cursor:pointer;
+  }
+  .fab:active { transform: scale(0.97); }
+
+  .sheet-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:1200; display:none; }
+  .sheet-backdrop.show { display:block; }
+
+  .sheet {
+    position:fixed; left:0; right:0; bottom:0; z-index:1300;
+    background:#fff; border-radius:18px 18px 0 0; box-shadow:0 -4px 18px rgba(0,0,0,0.3);
+    transform: translateY(110%); transition: transform .25s ease;
+    max-height: 88vh; display:flex; flex-direction:column;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .sheet.open { transform: translateY(0); }
+  @media (min-width: 720px) {
+    .sheet { left:auto; right:20px; bottom:20px; width:380px; border-radius:16px; max-height:85vh; }
+  }
+  .sheet-header {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 16px; border-bottom:1px solid #eee; font-size:16px; font-weight:bold;
+  }
+  .sheet-close { font-size:26px; line-height:1; color:#888; cursor:pointer; padding:0 4px; }
+  .sheet-body { padding:14px 16px 18px; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+
+  .loc-box { background:#f4f7fb; border:1px solid #dbe4f0; border-radius:10px; padding:10px 12px; margin-bottom:12px; }
+  .loc-text { display:block; font-size:12.5px; color:#445; line-height:1.5; margin-top:8px; word-break:break-all; }
+  .field {
+    width:100%; box-sizing:border-box; border:1px solid #d5d9e0; border-radius:10px;
+    padding:12px; font-size:16px; font-family:inherit; margin-bottom:10px; background:#fff;
+  }
+  .field:focus { outline:none; border-color:#2E9E5B; }
+  textarea.field { resize:vertical; line-height:1.5; }
+  .btn {
+    border:none; border-radius:10px; padding:12px 14px; font-size:15px;
+    font-weight:bold; font-family:inherit; cursor:pointer;
+  }
+  .btn-primary { background:#2E9E5B; color:#fff; flex:2; }
+  .btn-primary:disabled { background:#9ccdb1; }
+  .btn-ghost { background:#eef0f3; color:#555; flex:1; }
+  .btn-sub { background:#4472C4; color:#fff; padding:10px 12px; font-size:14px; }
+  .photo-label {
+    display:block; text-align:center; border:1.5px dashed #bcc3cc; border-radius:10px;
+    padding:14px; color:#667; font-size:14px; cursor:pointer; margin-bottom:10px;
+  }
+  .photo-preview img { width:100%; border-radius:10px; margin-bottom:10px; display:block; }
+  .sheet-actions { display:flex; gap:8px; margin-top:4px; }
+  .sheet-msg { margin-top:10px; font-size:13px; color:#c62828; min-height:18px; line-height:1.5; }
+  .sheet-msg.info { color:#2E9E5B; }
+
+  .toast {
+    position:fixed; left:50%; bottom:88px; transform:translateX(-50%);
+    background:rgba(0,0,0,0.82); color:#fff; padding:11px 18px; border-radius:20px;
+    font-size:14px; z-index:1400; opacity:0; transition:opacity .25s; pointer-events:none; max-width:80vw; text-align:center;
+  }
+  .toast.show { opacity:1; }
 </style>
 </head>
 <body>
 <div class="info-box">
   <h3>📍 안양3동 안전지도</h3>
   <span id="infoText">엑셀 파일을 불러오는 중...</span>
+  <div><span id="modeBadge" class="mode-badge">저장소 확인 중</span></div>
 </div>
 <div id="map"></div>
+
+<button id="addPinBtn" class="fab">＋ 핀 추가</button>
+
+<div id="sheetBackdrop" class="sheet-backdrop"></div>
+<div id="pinSheet" class="sheet">
+  <div class="sheet-header">
+    <span>내 위치에 핀 남기기</span>
+    <span id="sheetClose" class="sheet-close">&times;</span>
+  </div>
+  <div class="sheet-body">
+    <div class="loc-box">
+      <button id="useGpsBtn" class="btn btn-sub">📍 현재 위치 사용</button>
+      <span id="locText" class="loc-text">위치를 지정해 주세요. 지도를 탭하거나 핀을 드래그해서 조정할 수 있습니다.</span>
+    </div>
+
+    <input id="nickInput" class="field" type="text" maxlength="20" placeholder="닉네임 (예: 김안양)" />
+    <textarea id="memoInput" class="field" rows="3" maxlength="500" placeholder="이곳에 대한 메모를 남겨주세요 (예: 밤에 가로등이 없어 어두워요)"></textarea>
+
+    <label class="photo-label" for="photoInput">📷 사진 촬영 / 앨범에서 선택</label>
+    <input id="photoInput" type="file" accept="image/*" hidden />
+    <div id="photoPreview" class="photo-preview"></div>
+
+    <div class="sheet-actions">
+      <button id="cancelBtn" class="btn btn-ghost">취소</button>
+      <button id="submitBtn" class="btn btn-primary">등록하기</button>
+    </div>
+    <div id="sheetMsg" class="sheet-msg"></div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
 <div id="lightbox" class="lightbox">
   <span class="lightbox-close" onclick="closeLightbox()">&times;</span>
   <img id="lightboxImg" src="" alt="확대된 사진"/>
 </div>
 
 <script>
-// ▼▼ 네이버 지도 설정 ▼▼
-var NAVER_KEY_ID = 'ldzn2y3ng1'; // ← NCP 콘솔에서 발급한 Key ID (위 <script src>의 ncpKeyId와 동일해야 합니다)
-var INIT_CENTER = new naver.maps.LatLng(37.3948, 126.9134); // 안양천
-var INIT_ZOOM = 16;
-var CLUSTER_MAX_ZOOM = 16;      // 이 줌 레벨 이상으로 확대하면 개별 마커로 표시, 축소하면 클러스터 표시
-var CLUSTER_GRID_SIZE = 100;    // 클러스터링 그리드 크기(px). 클수록 더 잘 뭉칩니다.
-var CLUSTER_MIN_SIZE = 2;       // 클러스터로 묶을 최소 마커 수
+/* ==========================================================================
+   1. 설정
+   ========================================================================== */
+var NAVER_KEY_ID = 'ldzn2y3ng1'; // NCP 콘솔 Key ID (위 <script src>의 ncpKeyId와 동일)
 
+// ▼▼▼ Firebase 설정: 콘솔에서 복사한 값으로 아래 6줄을 교체하세요 ▼▼▼
+var FIREBASE_CONFIG = {
+  apiKey:            "YOUR_FIREBASE_API_KEY",
+  authDomain:        "YOUR_PROJECT_ID.firebaseapp.com",
+  projectId:         "YOUR_PROJECT_ID",
+  storageBucket:     "YOUR_PROJECT_ID.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId:             "YOUR_APP_ID"
+};
+// ▲▲▲ 값을 넣기 전까지는 '내 기기에만 저장(임시 모드)'로 동작합니다 ▲▲▲
+
+var PIN_COLLECTION   = 'pins';   // Firestore 컬렉션 이름
+var MAX_PHOTO_CHARS  = 600000;   // 사진 1장 최대 용량(문자 수). Firestore 문서 한도 1MiB 대비 여유분
+
+var INIT_CENTER = new naver.maps.LatLng(37.3948, 126.9134);
+var INIT_ZOOM = 16;
+var CLUSTER_MAX_ZOOM  = 16;  // 이 줌 이상 확대하면 개별 마커, 축소하면 클러스터
+var CLUSTER_GRID_SIZE = 100; // 클러스터링 그리드 크기(px)
+var CLUSTER_MIN_SIZE  = 2;   // 클러스터로 묶을 최소 마커 수
+
+/* ==========================================================================
+   2. 지도 생성
+   ========================================================================== */
 var map = new naver.maps.Map('map', {
   center: INIT_CENTER,
   zoom: INIT_ZOOM,
@@ -71,43 +190,86 @@ var map = new naver.maps.Map('map', {
   logoControl: true,
   mapDataControl: false,
   zoomControl: true,
-  zoomControlOptions: { position: naver.maps.Position.RIGHT_BOTTOM }
+  zoomControlOptions: { position: naver.maps.Position.RIGHT_CENTER }
 });
 
-// 개별 지점 마커 (기존 파란색 번호 마커 유지)
-function makeMarkerIcon(n) {
+/* ==========================================================================
+   3. 마커 아이콘
+   ========================================================================== */
+function circleIcon(bg, inner, size, fontSize) {
   return {
-    content: '<div style="background:#4472C4;color:white;border-radius:50%;width:28px;height:28px;' +
+    content: '<div style="background:' + bg + ';color:white;border-radius:50%;width:' + size + 'px;height:' + size + 'px;' +
              'display:flex;align-items:center;justify-content:center;font-weight:bold;' +
-             'font-size:13px;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,0.4);">' + n + '</div>',
-    size: new naver.maps.Size(28, 28),
-    anchor: new naver.maps.Point(14, 14)
+             'font-size:' + fontSize + 'px;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,0.4);">' + inner + '</div>',
+    size: new naver.maps.Size(size, size),
+    anchor: new naver.maps.Point(size / 2, size / 2)
   };
 }
-
-// 클러스터(그룹) 마커 - 주황색 숫자 원
-function makeClusterIcon(count) {
+function makeMarkerIcon(n)            { return circleIcon('#4472C4', n, 28, 13); }                          // 기존 엑셀 핀(파랑)
+function makeCommunityIcon(hasPhoto)  { return circleIcon('#2E9E5B', hasPhoto ? '📷' : '💬', 30, 14); }      // 참여자 핀(초록)
+function makeClusterIcon(count)       { return circleIcon('#FF8F00', count, 36, 15); }                      // 클러스터(주황)
+function makeTempIcon() {
   return {
-    content: '<div style="background:#FF8F00;color:white;border-radius:50%;width:36px;height:36px;' +
-             'display:flex;align-items:center;justify-content:center;font-weight:bold;' +
-             'font-size:15px;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,0.4);">' + count + '</div>',
-    size: new naver.maps.Size(36, 36),
-    anchor: new naver.maps.Point(18, 18)
+    content: '<div style="width:34px;height:34px;border-radius:50%;background:rgba(229,57,53,0.25);' +
+             'display:flex;align-items:center;justify-content:center;">' +
+             '<div style="width:18px;height:18px;border-radius:50%;background:#E53935;border:3px solid #fff;' +
+             'box-shadow:0 1px 5px rgba(0,0,0,0.5);"></div></div>',
+    size: new naver.maps.Size(34, 34),
+    anchor: new naver.maps.Point(17, 17)
   };
 }
 
 var infoWindow = new naver.maps.InfoWindow({
-  content: '',
-  maxWidth: 240,
-  disableAutoPan: true,
-  borderWidth: 1,
-  borderColor: '#4472C4',
-  backgroundColor: '#ffffff',
-  anchorSize: new naver.maps.Size(10, 10),
-  anchorColor: '#ffffff',
-  pixelOffset: new naver.maps.Point(0, -4),
-  zIndex: 2000
+  content: '', maxWidth: 240, disableAutoPan: false,
+  borderWidth: 1, borderColor: '#4472C4', backgroundColor: '#ffffff',
+  anchorSize: new naver.maps.Size(10, 10), anchorColor: '#ffffff',
+  pixelOffset: new naver.maps.Point(0, -4), zIndex: 2000
 });
+
+/* ==========================================================================
+   4. 클러스터링 (엑셀 핀 + 참여자 핀을 함께 묶음)
+   ========================================================================== */
+var excelMarkers = [];
+var communityMarkers = {};   // { docId: naver.maps.Marker }
+var markerClustering = null;
+
+function collectMarkers() {
+  var list = excelMarkers.slice();
+  for (var id in communityMarkers) {
+    if (communityMarkers.hasOwnProperty(id)) list.push(communityMarkers[id]);
+  }
+  return list;
+}
+
+function syncClustering() {
+  var list = collectMarkers();
+  if (!markerClustering) {
+    markerClustering = new MarkerClustering({
+      minClusterSize: CLUSTER_MIN_SIZE,
+      maxZoom: CLUSTER_MAX_ZOOM,
+      map: map,
+      markers: list,
+      disableClickZoom: false,
+      gridSize: CLUSTER_GRID_SIZE,
+      icons: [makeClusterIcon(0)],
+      stylingFunction: function(clusterMarker, count) {
+        clusterMarker.setIcon(makeClusterIcon(count));
+      }
+    });
+  } else {
+    markerClustering.setMarkers(list);
+    markerClustering._redraw(); // setMarkers만으로는 갱신되지 않아 직접 다시 그림
+  }
+}
+
+/* ==========================================================================
+   5. 기존 엑셀 데이터 로딩 (데이터 형식 그대로 유지)
+   ========================================================================== */
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
 
 async function loadExcel() {
   try {
@@ -118,9 +280,7 @@ async function loadExcel() {
     const ws = wb.Sheets[wb.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(ws);
 
-    // 기존 위치 데이터(배열)는 그대로 유지하고, 마커는 새로 생성합니다.
     const positions = [];
-    const markers = [];
 
     rows.forEach((r) => {
       const lat = r['위도(Lat)'];
@@ -137,10 +297,7 @@ async function loadExcel() {
       const position = new naver.maps.LatLng(lat, lng);
       positions.push(position);
 
-      const marker = new naver.maps.Marker({
-        position: position,
-        icon: makeMarkerIcon(no)
-      });
+      const marker = new naver.maps.Marker({ position: position, icon: makeMarkerIcon(no) });
 
       const photoTag = file
         ? `<img src="photos/${file}" onclick="openLightbox(this.src)" onerror="this.outerHTML='<div class=\\'popup-no-photo\\'>사진 없음</div>'" />`
@@ -165,7 +322,7 @@ async function loadExcel() {
         infoWindow.open(map, marker);
       });
 
-      markers.push(marker);
+      excelMarkers.push(marker);
     });
 
     if (positions.length > 0) {
@@ -176,19 +333,7 @@ async function loadExcel() {
       map.fitBounds(bounds, 60);
     }
 
-    // 마커 클러스터링: 축소 시 인접 마커를 숫자 그룹으로, 확대 시 개별 마커로 표시
-    new MarkerClustering({
-      minClusterSize: CLUSTER_MIN_SIZE,
-      maxZoom: CLUSTER_MAX_ZOOM,
-      map: map,
-      markers: markers,
-      disableClickZoom: false,
-      gridSize: CLUSTER_GRID_SIZE,
-      icons: [makeClusterIcon(0)],
-      stylingFunction: function(clusterMarker, count) {
-        clusterMarker.setIcon(makeClusterIcon(count));
-      }
-    });
+    syncClustering();
 
     const first = rows[0];
     const dateStr = first ? first['촬영일자'] || '' : '';
@@ -197,11 +342,349 @@ async function loadExcel() {
   } catch (e) {
     document.getElementById('infoText').textContent = '엑셀 파일을 불러오지 못했습니다. ' + e.message;
     console.error(e);
+    syncClustering();
   }
 }
 
-loadExcel();
+/* ==========================================================================
+   6. 참여자 핀 저장소 (Firebase / 임시 로컬)
+   ========================================================================== */
+function isFirebaseReady() {
+  return typeof firebase !== 'undefined'
+      && FIREBASE_CONFIG.projectId
+      && FIREBASE_CONFIG.projectId.indexOf('YOUR_') !== 0;
+}
 
+function createFirebaseStore() {
+  firebase.initializeApp(FIREBASE_CONFIG);
+  var db = firebase.firestore();
+  return {
+    mode: 'firebase',
+    subscribe: function(onChanges, onError) {
+      db.collection(PIN_COLLECTION).limit(1000).onSnapshot(function(snap) {
+        var changes = snap.docChanges().map(function(ch) {
+          return { type: ch.type, id: ch.doc.id, data: ch.doc.data() };
+        });
+        onChanges(changes);
+      }, function(err) {
+        onError && onError(err);
+      });
+    },
+    add: function(rec) {
+      rec.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+      return db.collection(PIN_COLLECTION).add(rec);
+    }
+  };
+}
+
+function createLocalStore() {
+  var KEY = 'anyang_pins_v1';
+  var listener = null;
+  function readAll() {
+    try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (e) { return []; }
+  }
+  return {
+    mode: 'local',
+    subscribe: function(onChanges) {
+      listener = onChanges;
+      onChanges(readAll().map(function(r) {
+        return { type: 'added', id: r.id, data: r };
+      }));
+    },
+    add: function(rec) {
+      var all = readAll();
+      rec.id = 'local_' + Date.now();
+      all.push(rec);
+      try {
+        localStorage.setItem(KEY, JSON.stringify(all));
+      } catch (e) {
+        return Promise.reject(new Error('기기 저장 공간이 부족합니다. 사진 용량을 줄여주세요.'));
+      }
+      listener && listener([{ type: 'added', id: rec.id, data: rec }]);
+      return Promise.resolve(rec);
+    }
+  };
+}
+
+var store = null;
+function initStore() {
+  var badge = document.getElementById('modeBadge');
+  if (isFirebaseReady()) {
+    try {
+      store = createFirebaseStore();
+      badge.textContent = '공유 모드 · 모두에게 보입니다';
+      badge.className = 'mode-badge shared';
+    } catch (e) {
+      console.error(e);
+      store = createLocalStore();
+      badge.textContent = 'Firebase 연결 실패 · 내 기기에만 저장';
+    }
+  } else {
+    store = createLocalStore();
+    badge.textContent = '임시 모드 · 내 기기에만 저장';
+  }
+
+  store.subscribe(function(changes) {
+    changes.forEach(function(ch) {
+      if (ch.type === 'removed') {
+        if (communityMarkers[ch.id]) {
+          communityMarkers[ch.id].setMap(null);
+          delete communityMarkers[ch.id];
+        }
+      } else {
+        renderCommunityPin(ch.id, ch.data);
+      }
+    });
+    if (changes.length) syncClustering();
+  }, function(err) {
+    console.error(err);
+    toast('저장소 연결 오류: ' + err.message);
+  });
+}
+
+function formatDate(iso) {
+  if (!iso) return '';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  function p(n) { return (n < 10 ? '0' : '') + n; }
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) +
+         ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+
+function renderCommunityPin(id, data) {
+  if (!data || typeof data.lat !== 'number' || typeof data.lng !== 'number') return;
+
+  if (communityMarkers[id]) {
+    communityMarkers[id].setMap(null);
+    delete communityMarkers[id];
+  }
+
+  var marker = new naver.maps.Marker({
+    position: new naver.maps.LatLng(data.lat, data.lng),
+    icon: makeCommunityIcon(!!data.photo)
+  });
+
+
+  // 외부에서 저장된 값이므로 data:image 형식만 허용 (따옴표 주입 차단)
+  var safePhoto = (typeof data.photo === 'string'
+                   && data.photo.indexOf('data:image/') === 0
+                   && data.photo.indexOf('"') === -1) ? data.photo : null;
+
+  var photoTag = safePhoto
+    ? '<img src="' + safePhoto + '" onclick="openLightbox(this.src)" />'
+    : '';
+  var memoTag = data.memo
+    ? '<div class="padlet-comment">' + escapeHtml(data.memo) + '</div>'
+    : '';
+
+  var html =
+    '<div class="popup-content community">' +
+      photoTag +
+      '<b>' + escapeHtml(data.nickname || '익명') + '</b><br/>' +
+      '<span style="color:#888;font-size:12px;">' + formatDate(data.created) + '</span>' +
+      memoTag +
+    '</div>';
+
+  naver.maps.Event.addListener(marker, 'click', function() {
+    infoWindow.setContent(html);
+    infoWindow.open(map, marker);
+  });
+
+  communityMarkers[id] = marker;
+}
+
+/* ==========================================================================
+   7. 핀 추가 UI
+   ========================================================================== */
+var sheet        = document.getElementById('pinSheet');
+var backdrop     = document.getElementById('sheetBackdrop');
+var locText      = document.getElementById('locText');
+var nickInput    = document.getElementById('nickInput');
+var memoInput    = document.getElementById('memoInput');
+var photoInput   = document.getElementById('photoInput');
+var photoPreview = document.getElementById('photoPreview');
+var submitBtn    = document.getElementById('submitBtn');
+var sheetMsg     = document.getElementById('sheetMsg');
+
+var tempMarker  = null;
+var selectedPos = null;
+var photoDataUrl = null;
+
+function msg(text, isInfo) {
+  sheetMsg.textContent = text || '';
+  sheetMsg.className = 'sheet-msg' + (isInfo ? ' info' : '');
+}
+
+var toastTimer = null;
+function toast(text) {
+  var el = document.getElementById('toast');
+  el.textContent = text;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function() { el.classList.remove('show'); }, 2600);
+}
+
+function isSheetOpen() { return sheet.classList.contains('open'); }
+
+function openSheet() {
+  infoWindow.close();
+  sheet.classList.add('open');
+  backdrop.classList.add('show');
+  msg('');
+  nickInput.value = localStorage.getItem('anyang_nickname') || '';
+  if (!selectedPos) requestGps();
+}
+
+function closeSheet() {
+  sheet.classList.remove('open');
+  backdrop.classList.remove('show');
+  if (tempMarker) { tempMarker.setMap(null); tempMarker = null; }
+  selectedPos = null;
+  photoDataUrl = null;
+  photoInput.value = '';
+  photoPreview.innerHTML = '';
+  memoInput.value = '';
+  locText.textContent = '위치를 지정해 주세요. 지도를 탭하거나 핀을 드래그해서 조정할 수 있습니다.';
+  msg('');
+}
+
+function setSelectedPos(latlng, label) {
+  selectedPos = latlng;
+  if (!tempMarker) {
+    tempMarker = new naver.maps.Marker({
+      position: latlng, map: map, icon: makeTempIcon(), draggable: true, zIndex: 3000
+    });
+    naver.maps.Event.addListener(tempMarker, 'dragend', function() {
+      setSelectedPos(tempMarker.getPosition(), '핀을 직접 옮긴 위치');
+    });
+  } else {
+    tempMarker.setPosition(latlng);
+    tempMarker.setMap(map);
+  }
+  locText.innerHTML = '<b style="color:#2E9E5B;">' + (label || '선택한 위치') + '</b><br/>' +
+    latlng.lat().toFixed(6) + ', ' + latlng.lng().toFixed(6);
+}
+
+function requestGps() {
+  if (!navigator.geolocation) {
+    locText.textContent = '이 브라우저는 위치 기능을 지원하지 않습니다. 지도를 탭해 직접 지정하세요.';
+    return;
+  }
+  locText.textContent = '현재 위치를 찾는 중...';
+  navigator.geolocation.getCurrentPosition(function(pos) {
+    var ll = new naver.maps.LatLng(pos.coords.latitude, pos.coords.longitude);
+    setSelectedPos(ll, '현재 위치 (오차 약 ' + Math.round(pos.coords.accuracy) + 'm)');
+    map.setCenter(ll);
+    if (map.getZoom() < 17) map.setZoom(17);
+  }, function(err) {
+    var reason = (err.code === 1)
+      ? '위치 권한이 거부되었습니다.'
+      : '위치를 가져오지 못했습니다.';
+    locText.textContent = reason + ' 지도를 탭해 직접 지정하세요.';
+  }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+}
+
+// 시트가 열려 있을 때 지도를 탭하면 그 자리에 핀을 놓음
+naver.maps.Event.addListener(map, 'click', function(e) {
+  if (!isSheetOpen()) return;
+  setSelectedPos(e.coord, '지도에서 선택한 위치');
+});
+
+document.getElementById('addPinBtn').addEventListener('click', openSheet);
+document.getElementById('sheetClose').addEventListener('click', closeSheet);
+document.getElementById('cancelBtn').addEventListener('click', closeSheet);
+backdrop.addEventListener('click', closeSheet);
+document.getElementById('useGpsBtn').addEventListener('click', requestGps);
+
+/* ---------- 사진 처리 (업로드 전에 축소·압축) ---------- */
+function loadImageSource(file) {
+  if (window.createImageBitmap) {
+    return createImageBitmap(file, { imageOrientation: 'from-image' }).catch(function() {
+      return loadViaImgTag(file);
+    });
+  }
+  return loadViaImgTag(file);
+}
+function loadViaImgTag(file) {
+  return new Promise(function(resolve, reject) {
+    var img = new Image();
+    var url = URL.createObjectURL(file);
+    img.onload  = function() { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = function() { URL.revokeObjectURL(url); reject(new Error('이미지를 읽을 수 없습니다.')); };
+    img.src = url;
+  });
+}
+function drawToDataUrl(src, w, h, quality) {
+  var canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  var ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(src, 0, 0, w, h);
+  return canvas.toDataURL('image/jpeg', quality);
+}
+async function makePhotoDataUrl(file) {
+  var src = await loadImageSource(file);
+  var iw = src.width, ih = src.height;
+  var maxSide = 1000, quality = 0.7, dataUrl = '';
+  for (var i = 0; i < 5; i++) {
+    var scale = Math.min(1, maxSide / Math.max(iw, ih));
+    dataUrl = drawToDataUrl(src, Math.max(1, Math.round(iw * scale)), Math.max(1, Math.round(ih * scale)), quality);
+    if (dataUrl.length <= MAX_PHOTO_CHARS) return dataUrl;
+    maxSide = Math.round(maxSide * 0.8);
+    quality = Math.max(0.35, quality - 0.1);
+  }
+  throw new Error('사진 용량이 너무 큽니다. 다른 사진을 선택해 주세요.');
+}
+
+photoInput.addEventListener('change', async function() {
+  var file = this.files && this.files[0];
+  if (!file) { photoDataUrl = null; photoPreview.innerHTML = ''; return; }
+  msg('사진을 처리하는 중...', true);
+  try {
+    photoDataUrl = await makePhotoDataUrl(file);
+    photoPreview.innerHTML = '<img src="' + photoDataUrl + '" alt="미리보기"/>';
+    msg('사진이 첨부되었습니다. (약 ' + Math.round(photoDataUrl.length / 1024) + 'KB)', true);
+  } catch (e) {
+    photoDataUrl = null;
+    photoPreview.innerHTML = '';
+    msg(e.message || '사진을 처리하지 못했습니다.');
+  }
+});
+
+/* ---------- 등록 ---------- */
+submitBtn.addEventListener('click', async function() {
+  if (!selectedPos) { msg('위치를 먼저 지정해 주세요.'); return; }
+  var memo = memoInput.value.trim();
+  if (!memo && !photoDataUrl) { msg('메모나 사진 중 하나는 입력해 주세요.'); return; }
+
+  var nickname = nickInput.value.trim() || '익명';
+  localStorage.setItem('anyang_nickname', nickname);
+
+  submitBtn.disabled = true;
+  msg('등록하는 중...', true);
+  try {
+    await store.add({
+      lat: selectedPos.lat(),
+      lng: selectedPos.lng(),
+      nickname: nickname,
+      memo: memo,
+      photo: photoDataUrl || null,
+      created: new Date().toISOString()
+    });
+    closeSheet();
+    toast(store.mode === 'firebase' ? '핀이 등록되었습니다.' : '핀이 등록되었습니다. (내 기기에만 저장됨)');
+  } catch (e) {
+    console.error(e);
+    msg('등록 실패: ' + (e.message || e));
+  } finally {
+    submitBtn.disabled = false;
+  }
+});
+
+/* ==========================================================================
+   8. 라이트박스
+   ========================================================================== */
 function openLightbox(src) {
   document.getElementById('lightboxImg').src = src;
   document.getElementById('lightbox').classList.add('show');
@@ -215,6 +698,12 @@ document.getElementById('lightbox').addEventListener('click', function(e) {
 });
 window.openLightbox = openLightbox;
 window.closeLightbox = closeLightbox;
+
+/* ==========================================================================
+   9. 시작
+   ========================================================================== */
+loadExcel();
+initStore();
 </script>
 </body>
 </html>
